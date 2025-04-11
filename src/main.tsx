@@ -5,7 +5,7 @@ import App from './App.tsx';
 import './index.css';
 
 // Use the provided Clerk publishable key
-const PUBLISHABLE_KEY = "pk_test_cG9wdWxhci1zaGluZXItNy5jbGVyay5hY2NvdW50cy5kZXYk";
+
 
 // In production, you would typically use:
 // const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -14,7 +14,7 @@ const PUBLISHABLE_KEY = "pk_test_cG9wdWxhci1zaGluZXItNy5jbGVyay5hY2NvdW50cy5kZXY
 // }
 
 createRoot(document.getElementById("root")!).render(
-  <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+  <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY}>
     <App />
   </ClerkProvider>
 );
