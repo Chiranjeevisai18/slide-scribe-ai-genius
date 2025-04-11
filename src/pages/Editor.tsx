@@ -16,11 +16,23 @@ import {
   Presentation,
   Settings,
   Trash,
-  Plus
+  Plus,
+  Loader2
 } from "lucide-react";
+import ReactMarkdown from 'react-markdown';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { getTopicImages } from '@/services/unsplash';
+import { generateSlideContent, getAIAssistantSuggestions } from '@/services/gemini';
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
 
 type InputType = "text" | "voice" | "csv" | "image" | "url";
 type Slide = {
@@ -28,6 +40,11 @@ type Slide = {
   title: string;
   bullets: string[];
   type: "title" | "bullets" | "image" | "chart";
+  image?: {
+    url: string;
+    alt: string;
+    credit: string;
+  };
 };
 
 const DUMMY_SLIDES: Slide[] = [
@@ -74,21 +91,69 @@ const Editor = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [slides, setSlides] = useState<Slide[]>([]);
   const [showPreview, setShowPreview] = useState(false);
-  
-  const handleGenerate = () => {
+  const [aiResponse, setAiResponse] = useState<string>("");
+  const [aiQuestion, setAiQuestion] = useState<string>("");
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [presentationTitle, setPresentationTitle] = useState("");
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+
+  const handleGenerate = async () => {
+    if (!presentationTitle.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a presentation title",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsGenerating(true);
-    
-    // Simulate API call with a timeout
-    setTimeout(() => {
-      setSlides(DUMMY_SLIDES);
+    try {
+      // Generate content using Gemini with both title and content
+      const generatedContent = await generateSlideContent(presentationTitle, textInput);
+      
+      // Transform the content into slides with images
+      const newSlides = await Promise.all(generatedContent.map(async (content, index) => {
+        try {
+          // Fetch relevant image for each slide
+          const images = await getTopicImages(content.imagePrompt || content.title);
+          
+          return {
+            id: index + 1,
+            title: content.title,
+            bullets: content.content,
+            type: index === 0 ? "title" : "bullets",
+            image: images[0]
+          };
+        } catch (imageError) {
+          console.error('Image fetch error:', imageError);
+          // Return slide without image if image fetch fails
+          return {
+            id: index + 1,
+            title: content.title,
+            bullets: content.content,
+            type: index === 0 ? "title" : "bullets"
+          };
+        }
+      }));
+
+      setSlides(newSlides as Slide[]);
       setShowPreview(true);
-      setIsGenerating(false);
       
       toast({
         title: "Presentation generated!",
-        description: "Your slides have been created successfully.",
+        description: "Your AI-powered slides have been created successfully.",
       });
-    }, 2000);
+    } catch (error) {
+      console.error('Generation error:', error);
+      toast({
+        title: "Generation failed",
+        description: "Failed to generate presentation. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
   
   const handleExport = (format: "pptx" | "pdf") => {
@@ -152,6 +217,184 @@ const Editor = () => {
     }
   };
 
+  const handleAIAssistant = async () => {
+    if (!aiQuestion.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a question first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsAiLoading(true);
+    try {
+      const suggestion = await getAIAssistantSuggestions(aiQuestion);
+      setAiResponse(suggestion);
+      
+      toast({
+        title: "AI Response Received",
+        description: "Got suggestions from AI assistant!",
+      });
+    } catch (error) {
+      console.error('AI Assistant error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to get AI suggestions. Please try again.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  const renderSlideContent = (slide: Slide) => (
+    <div className="slide-content bg-white p-6">
+      <h2 className="slide-title font-bold text-gray-900 mb-4">{slide.title}</h2>
+      
+      {slide.image && (
+        <div className="mb-4 relative aspect-video">
+          <img 
+            src={slide.image.url} 
+            alt={slide.image.alt}
+            className="rounded-lg object-cover w-full h-full"
+          />
+          <div className="absolute bottom-2 right-2 text-xs text-white bg-black bg-opacity-50 px-2 py-1 rounded">
+            Photo by {slide.image.credit}
+          </div>
+        </div>
+      )}
+      
+      {slide.bullets.length > 0 && (
+        <ul className="slide-bullets list-disc pl-6 space-y-2">
+          {slide.bullets.map((bullet, i) => (
+            <li key={i}>{bullet}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+
+  const renderAIAssistantCard = () => (
+    <>
+      <div className="flex flex-col space-y-6">
+        {/* AI Assistant Box */}
+        <div className="rounded-md p-4 border border-purple/20 shadow-sm bg-purple/5">
+          <h3 className="font-semibold text-purple mb-2">👋 Need help?</h3>
+          <p className="text-sm text-gray-600">
+            Use the AI Assistant to improve your content, suggest slide titles, or add interesting points.
+          </p>
+          <ul className="list-disc list-inside mt-2 text-gray-500 text-sm">
+            <li>Suggest slide outlines</li>
+            <li>Fix grammar or improve clarity</li>
+            <li>Make content more engaging</li>
+          </ul>
+          <Button
+            className="mt-4 w-full bg-purple text-white hover:bg-purple-dark"
+            onClick={() => setAiDialogOpen(true)}
+          >
+            🚀 Launch AI Assistant
+          </Button>
+        </div>
+  
+        {/* AI Assistant Dialog */}
+        <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+          <DialogTrigger asChild>
+            <div className="fixed bottom-4 right-4 z-50">
+              <Button
+                variant="ghost"
+                className="bg-purple text-white rounded-full w-12 h-12 shadow-lg hover:bg-purple-dark"
+              >
+                ?
+              </Button>
+            </div>
+          </DialogTrigger>
+  
+          <DialogContent className="max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-purple">
+                AI Assistant
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-500">
+                Ask anything to improve your presentation content.
+              </DialogDescription>
+            </DialogHeader>
+  
+            <div className="space-y-4 mt-4">
+              <div className="relative">
+                <Input
+                  value={aiQuestion}
+                  onChange={(e) => setAiQuestion(e.target.value)}
+                  placeholder="Ask the AI assistant a question..."
+                  className="pr-24"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isAiLoading) {
+                      e.preventDefault();
+                      handleAIAssistant();
+                    }
+                  }}
+                />
+                <Button
+                  className="absolute right-0 top-0 bg-purple hover:bg-purple-dark rounded-l-none"
+                  onClick={handleAIAssistant}
+                  disabled={isAiLoading}
+                >
+                  {isAiLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>Ask AI</>
+                  )}
+                </Button>
+              </div>
+  
+              {aiResponse ? (
+                <div className="mt-4 p-4 bg-gray-100 rounded-md border prose prose-sm max-w-none whitespace-pre-wrap">
+                  <h4 className="font-medium mb-2 text-purple">AI Suggestion:</h4>
+                  <div className="prose dark:prose-invert max-w-none">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="mb-2">{children}</p>,
+                      }}
+                    >
+                      {aiResponse}
+                    </ReactMarkdown>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center text-sm text-gray-500 mt-6">
+                  🤖 Ask a question above to get started with your presentation!
+                </div>
+              )}
+  
+              <div className="text-sm text-gray-500 pt-2 border-t">
+                <p className="font-medium text-gray-600">Examples:</p>
+                <ul className="mt-1 list-disc list-inside text-gray-500">
+                  <li>How can I make my introduction more engaging?</li>
+                  <li>Suggest better transitions between slides</li>
+                  <li>How can I improve slide 2's content?</li>
+                </ul>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+  
+        {/* Tips Box at the bottom */}
+        <div className="p-4 bg-gray-50 border rounded-md text-sm">
+          <h4 className="font-semibold text-gray-700 mb-1">💡 Tips for Great Slides</h4>
+          <ul className="list-disc list-inside text-gray-600 space-y-1">
+            <li>Keep each slide to 3-4 bullet points</li>
+            <li>Use clear titles for each section</li>
+            <li>Tell a story — not just facts</li>
+          </ul>
+        </div>
+      </div>
+    </>
+  );
+  
+
   return (
     <Layout>
       <div className="container mx-auto p-6">
@@ -203,6 +446,8 @@ const Editor = () => {
                         id="presentation-title" 
                         placeholder="Enter presentation title" 
                         className="mb-4"
+                        value={presentationTitle}
+                        onChange={(e) => setPresentationTitle(e.target.value)}
                       />
                     </div>
                     <div>
@@ -409,12 +654,12 @@ const Editor = () => {
               </div>
               
               <div className="grid grid-cols-1 gap-6">
-                {slides.map((slide, index) => (
+                {slides.map((slide) => (
                   <Card key={slide.id} className="overflow-hidden">
                     <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
                       <div className="flex items-center">
                         <Presentation size={16} className="mr-2" />
-                        <span className="font-medium">Slide {index + 1}</span>
+                        <span className="font-medium">Slide {slide.id}</span>
                       </div>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -426,23 +671,11 @@ const Editor = () => {
                       </div>
                     </div>
                     <CardContent className="p-0">
-                      <div className="slide">
-                        <div className="slide-content bg-white">
-                          <h2 className="slide-title font-bold text-gray-900">{slide.title}</h2>
-                          {slide.bullets.length > 0 && (
-                            <ul className="slide-bullets list-disc pl-6 space-y-2">
-                              {slide.bullets.map((bullet, i) => (
-                                <li key={i}>{bullet}</li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      </div>
+                      {renderSlideContent(slide)}
                     </CardContent>
                   </Card>
                 ))}
                 
-                {/* Add slide button */}
                 <Button 
                   variant="outline" 
                   className="border-dashed h-16 flex items-center justify-center gap-2"
@@ -455,91 +688,7 @@ const Editor = () => {
           )}
           
           {/* Right Panel - Settings or Templates */}
-          {!showPreview && (
-            <div className="w-full lg:w-5/12">
-              <Card>
-                <CardContent className="p-6">
-                  <h2 className="text-xl font-semibold mb-4">Presentation Settings</h2>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <Label htmlFor="slide-template">Slide Template</Label>
-                      <select 
-                        id="slide-template" 
-                        className="w-full p-2 border rounded-md mt-1"
-                      >
-                        <option value="professional">Professional</option>
-                        <option value="creative">Creative</option>
-                        <option value="minimal">Minimal</option>
-                        <option value="corporate">Corporate</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="color-scheme">Color Scheme</Label>
-                      <select 
-                        id="color-scheme" 
-                        className="w-full p-2 border rounded-md mt-1"
-                      >
-                        <option value="purple">Purple Theme</option>
-                        <option value="blue">Blue Theme</option>
-                        <option value="green">Green Theme</option>
-                        <option value="orange">Orange Theme</option>
-                      </select>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="transition">Transition Style</Label>
-                      <select 
-                        id="transition" 
-                        className="w-full p-2 border rounded-md mt-1"
-                      >
-                        <option value="fade">Fade</option>
-                        <option value="slide">Slide</option>
-                        <option value="zoom">Zoom</option>
-                        <option value="none">None</option>
-                      </select>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 py-2">
-                      <input type="checkbox" id="auto-images" className="h-4 w-4" />
-                      <Label htmlFor="auto-images">Auto-insert relevant images</Label>
-                    </div>
-                    
-                    <div className="flex items-center gap-2 py-2">
-                      <input type="checkbox" id="auto-chart" className="h-4 w-4" />
-                      <Label htmlFor="auto-chart">Generate charts from data</Label>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              
-              <Card className="mt-6">
-                <CardContent className="p-6">
-                  <h2 className="text-xl font-semibold mb-4">AI Assistant</h2>
-                  <p className="text-gray-600 mb-4">
-                    Let our AI suggest improvements to your content or answer questions about creating effective presentations.
-                  </p>
-                  
-                  <div className="relative">
-                    <Input
-                      placeholder="Ask the AI assistant a question..."
-                      className="pr-24"
-                    />
-                    <Button 
-                      className="absolute right-0 top-0 bg-purple hover:bg-purple-dark rounded-l-none"
-                    >
-                      Ask AI
-                    </Button>
-                  </div>
-                  
-                  <div className="mt-4 text-sm text-gray-500">
-                    Example: "How can I make my introduction more engaging?"
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+          {!showPreview && renderAIAssistantCard()}
         </div>
       </div>
     </Layout>
