@@ -10,6 +10,7 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import NotFound from "./pages/NotFound";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
 import Editor from "./pages/Editor";
 import Templates from "./pages/Templates";
 import Settings from "./pages/Settings";
@@ -74,7 +75,16 @@ const App = () => {
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={
+              <>
+                <SignedIn>
+                  <Navigate to="/dashboard" replace />
+                </SignedIn>
+                <SignedOut>
+                  <Index />
+                </SignedOut>
+              </>
+            } />
             <Route path="/login" element={
               <>
                 <SignedIn>
@@ -82,6 +92,16 @@ const App = () => {
                 </SignedIn>
                 <SignedOut>
                   <Login />
+                </SignedOut>
+              </>
+            } />
+            <Route path="/signup" element={
+              <>
+                <SignedIn>
+                  <Navigate to="/dashboard" replace />
+                </SignedIn>
+                <SignedOut>
+                  <Signup />
                 </SignedOut>
               </>
             } />
