@@ -1,10 +1,9 @@
-
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import {
-  FilePresentation,
+  Presentation,
   Search,
   Clock,
   Star,
@@ -114,7 +113,7 @@ const Dashboard = () => {
               <Card key={presentation.id} className="overflow-hidden hover:shadow-md transition-shadow">
                 <Link to={`/editor?id=${presentation.id}`}>
                   <div className={`aspect-video ${presentation.thumbnail} flex items-center justify-center`}>
-                    <FilePresentation size={48} className="text-gray-700 opacity-40" />
+                    <Presentation size={48} className="text-gray-700 opacity-40" />
                   </div>
                 </Link>
                 <CardContent className="p-4">
@@ -163,7 +162,7 @@ const Dashboard = () => {
               <Card key={template.id} className="overflow-hidden hover:shadow-md transition-shadow">
                 <Link to={`/editor?template=${template.id}`}>
                   <div className={`aspect-video ${template.thumbnail} flex items-center justify-center`}>
-                    <FilePresentation size={48} className="text-gray-700 opacity-40" />
+                    <Presentation size={48} className="text-gray-700 opacity-40" />
                   </div>
                 </Link>
                 <CardContent className="p-4">

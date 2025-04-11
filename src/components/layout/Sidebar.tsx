@@ -1,11 +1,10 @@
-
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { UserButton } from "@clerk/clerk-react";
 import { 
   CirclePlus, 
   LayoutDashboard, 
-  FilePresentation, 
+  Presentation, 
   Settings as SettingsIcon,
   Menu, 
   X, 
@@ -24,7 +23,7 @@ export function Sidebar() {
 
   const menuItems = [
     { name: "Dashboard", path: "/dashboard", icon: <LayoutDashboard size={20} /> },
-    { name: "Templates", path: "/templates", icon: <FilePresentation size={20} /> },
+    { name: "Templates", path: "/templates", icon: <Presentation size={20} /> },
     { name: "Settings", path: "/settings", icon: <SettingsIcon size={20} /> },
   ];
 

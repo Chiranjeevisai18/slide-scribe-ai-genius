@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
@@ -14,7 +13,7 @@ import {
   Globe, 
   ChevronRight, 
   Download, 
-  FilePresentation,
+  Presentation,
   Settings,
   Trash,
   Plus
@@ -414,7 +413,7 @@ const Editor = () => {
                   <Card key={slide.id} className="overflow-hidden">
                     <div className="bg-gray-100 p-3 flex justify-between items-center border-b">
                       <div className="flex items-center">
-                        <FilePresentation size={16} className="mr-2" />
+                        <Presentation size={16} className="mr-2" />
                         <span className="font-medium">Slide {index + 1}</span>
                       </div>
                       <div className="flex gap-1">

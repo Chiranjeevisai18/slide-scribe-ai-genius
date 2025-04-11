@@ -1,9 +1,8 @@
-
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { 
-  FilePresentation, 
+  Presentation, 
   Sparkles, 
   FileText, 
   Mic, 
@@ -157,7 +156,7 @@ const Index = () => {
                     <div className="slide bg-white rounded-lg overflow-hidden">
                       <div className="bg-purple-dark text-white p-4">
                         <div className="flex items-center">
-                          <FilePresentation className="mr-2" size={20} />
+                          <Presentation className="mr-2" size={20} />
                           <h3 className="font-medium">AI Generated Slide</h3>
                         </div>
                       </div>

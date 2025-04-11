@@ -1,10 +1,9 @@
-
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  FilePresentation,
+  Presentation,
   Search,
   Grid3x3,
   List,
@@ -176,7 +175,7 @@ const Templates = () => {
                       <div
                         className={`aspect-video ${template.thumbnail} flex items-center justify-center`}
                       >
-                        <FilePresentation
+                        <Presentation
                           size={48}
                           className="text-gray-700 opacity-40"
                         />
@@ -213,7 +212,7 @@ const Templates = () => {
                       <div
                         className={`h-16 w-28 ${template.thumbnail} flex items-center justify-center rounded-md mr-4`}
                       >
-                        <FilePresentation
+                        <Presentation
                           size={24}
                           className="text-gray-700 opacity-40"
                         />
@@ -241,7 +240,7 @@ const Templates = () => {
             {filteredTemplates.length === 0 && (
               <div className="text-center py-12">
                 <div className="mb-4">
-                  <FilePresentation
+                  <Presentation
                     size={48}
                     className="text-gray-300 mx-auto"
                   />
