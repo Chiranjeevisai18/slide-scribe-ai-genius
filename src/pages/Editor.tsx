@@ -4,6 +4,7 @@ import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   FileText, 
@@ -40,11 +41,7 @@ type Slide = {
   title: string;
   bullets: string[];
   type: "title" | "bullets" | "image" | "chart";
-  image?: {
-    url: string;
-    alt: string;
-    credit: string;
-  };
+  image?:string;
 };
 
 const DUMMY_SLIDES: Slide[] = [
@@ -97,6 +94,13 @@ const Editor = () => {
   const [presentationTitle, setPresentationTitle] = useState("");
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
 
+  interface SlideContent {
+    title: string;
+    content: string[];
+    imagePrompt: string;
+    slideType?: "title" | "bullets" | "split" | "quote" | "image-focus";
+  }
+  
   const handleGenerate = async () => {
     if (!presentationTitle.trim()) {
       toast({
@@ -106,7 +110,6 @@ const Editor = () => {
       });
       return;
     }
-
     setIsGenerating(true);
     try {
       // Generate content using Gemini with both title and content
@@ -122,7 +125,7 @@ const Editor = () => {
             id: index + 1,
             title: content.title,
             bullets: content.content,
-            type: index === 0 ? "title" : "bullets",
+            type: content.slideType || (index === 0 ? "title" : "bullets"), // Use the slideType from the API
             image: images[0]
           };
         } catch (imageError) {
@@ -132,11 +135,10 @@ const Editor = () => {
             id: index + 1,
             title: content.title,
             bullets: content.content,
-            type: index === 0 ? "title" : "bullets"
+            type: content.slideType || (index === 0 ? "title" : "bullets") // Use the slideType from the API
           };
         }
       }));
-
       setSlides(newSlides as Slide[]);
       setShowPreview(true);
       
@@ -180,26 +182,268 @@ const Editor = () => {
     navigate("/dashboard");
   };
   
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
+// Initialize speech recognition at component level
+interface SpeechRecognition {
+  onerror: (event: any) => void;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: () => void;
+  onresult: (event: any) => void;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionConstructor {
+  new(): SpeechRecognition;
+}
+
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+let recognition: SpeechRecognition | null = null;
+
+// Try to create a speech recognition instance  
+try {
+  recognition = SpeechRecognition ? new SpeechRecognition() : null;
+  if (recognition) {
+    recognition.continuous = true;
+    recognition.interimResults = true;
+  }
+} catch (e) {
+  console.error("Speech recognition not supported in this browser");
+}
+
+// State for storing transcript
+const [transcript, setTranscript] = useState<string>("");
+
+const toggleRecording = () => {
+  setIsRecording(!isRecording);
+  
+  if (!isRecording) {
+    // Start recording
+    if (!recognition) {
+      toast({
+        title: "Speech recognition not supported",
+        description: "Your browser doesn't support voice recording. Please try another browser.",
+        variant: "destructive"
+      });
+      setIsRecording(false);
+      return;
+    }
     
-    if (!isRecording) {
+    // Clear previous transcript
+    setTranscript("");
+    
+    // Set up recognition event handlers
+    recognition.onstart = () => {
       toast({
         title: "Recording started",
         description: "Speak clearly into your microphone.",
       });
-    } else {
+    };
+    
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      let finalTranscript = '';
+      
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' ';
+        } else {
+          interimTranscript += transcript;
+        }
+      }
+      
+      // Update text input with the transcript as it comes in
+      setTranscript(prev => prev + finalTranscript);
+      setTextInput(prev => prev + finalTranscript);
+    };
+    
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      toast({
+        title: "Recording error",
+        description: `Error: ${event.error}. Please try again.`,
+        variant: "destructive"
+      });
+      setIsRecording(false);
+    };
+    
+    // Start recognition
+    try {
+      recognition.start();
+    } catch (e) {
+      console.error("Error starting speech recognition", e);
+      toast({
+        title: "Recording error",
+        description: "Failed to start recording. Please try again.",
+        variant: "destructive"
+      });
+      setIsRecording(false);
+    }
+  } else {
+    // Stop recording
+    if (recognition) {
+      recognition.stop();
       toast({
         title: "Recording stopped",
-        description: "Your speech is being processed.",
+        description: "Processing your speech...",
       });
       
-      // Simulate speech processing
-      setTimeout(() => {
-        setTextInput("This is the transcribed text from your speech. In a real implementation, this would contain the actual transcription of what you said.");
-      }, 1000);
+      // Process the transcript and generate presentation
+      processVoiceInput();
     }
-  };
+  }
+};
+
+// Process the voice input and generate presentation
+const processVoiceInput = async () => {
+  if (!transcript.trim()) {
+    toast({
+      title: "Empty recording",
+      description: "No speech was detected. Please try again.",
+      variant: "destructive"
+    });
+    return;
+  }
+  
+  // Extract presentation title from transcript or prompt for one
+  let extractedTitle = "";
+  
+  try {
+    // First, ask Gemini to extract a title from the transcript
+
+    const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '');
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash', // FREE tier-supported fast model
+    });
+    
+    try {
+      const titleResponse = await model.generateContent(
+        `Extract a brief, engaging presentation title from this transcript: "${transcript}". 
+        Return ONLY the title, no additional text or formatting.`
+      );
+    
+      let extractedTitle = titleResponse.response.text().trim();
+    
+      // If no title set from the extraction, use a default
+      if (!extractedTitle) {
+        extractedTitle = "Voice-Generated Presentation";
+      }
+    
+      // Update the presentation title
+      setPresentationTitle(extractedTitle);
+    
+      toast({
+        title: "Generating presentation",
+        description: "Creating slides based on your speech...",
+      });
+    
+      setIsGenerating(true);
+    
+      try {
+        // Generate content using Gemini
+        const generatedContent = await generateSlideContent(extractedTitle, transcript);
+    
+        // Fallback keyword map (optional)
+        const fallbackKeywords: Record<string, string> = {
+          "AI": "artificial intelligence, neural networks, futuristic tech",
+          "Climate": "climate change, earth, global warming, sustainability",
+          "Business": "business meeting, finance, corporate, growth strategy",
+          // Add more keywords for known domains
+        };
+    
+        // Generate enhanced slides with improved image prompts
+        const newSlides = await Promise.all(generatedContent.map(async (content, index) => {
+          try {
+            // 1. Generate search-friendly keywords using GPT
+            const keywordPrompt = await model.generateContent(
+              `You are an expert at generating highly relevant image search keywords. 
+              Based on the slide titled "${content.title}" and its key bullet points: ${content.content.join(', ')}, 
+              generate the 5 to 7 most relevant and visually descriptive keywords that could return ideal images representing this slide. 
+              Focus mainly on the title but enhance it using the bullet points. 
+              Return only the keywords, comma-separated, with no extra text.`
+            );
+            
+            const keywordQuery = keywordPrompt.response.text().trim().replace(/\n/g, '');
+            console.log("🔍 Image Search Keywords:", keywordQuery);
+        
+            // 2. Construct Unsplash API URL with keywords
+            const accessKey = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
+        
+            const response = await fetch(
+              `https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywordQuery)}&client_id=${accessKey}&per_page=1&orientation=landscape&content_filter=high&order_by=relevant`
+            );
+            
+        
+            const data = await response.json();
+        
+            // 3. Handle case when no image found
+            if (!data.results || data.results.length === 0) {
+              throw new Error("No relevant images found");
+            }
+        
+            // 4. Pick the first image (you can add logic to rank them later)
+            const bestImage = data.results[0].urls?.regular;
+            console.log(bestImage);
+            // 5. Return the completed slide
+            return {
+              id: index + 1,
+              title: content.title,
+              bullets: content.content,
+              type: content.slideType || (index === 0 ? "title" : "bullets"),
+              image: bestImage
+            };
+        
+          } catch (imageError) {
+            console.error('❌ Image fetch error:', {
+              error: imageError.message,
+              fallback: `${content.title} ${content.content.join(' ')}`
+            });
+        
+            // Return fallback slide without image
+            return {
+              id: index + 1,
+              title: content.title,
+              bullets: content.content,
+              type: content.slideType || (index === 0 ? "title" : "bullets"),
+              image: null // Or a default placeholder image URL
+            };
+          }
+          
+        }));
+    
+        setSlides(newSlides as Slide[]);
+        setShowPreview(true);
+    
+        toast({
+          title: "Presentation generated!",
+          description: "Your voice-powered slides have been created successfully.",
+        });
+      } catch (error) {
+        console.error('Generation error:', error);
+        toast({
+          title: "Generation failed",
+          description: "Failed to generate presentation. Please try again.",
+          variant: "destructive"
+        });
+      } finally {
+        setIsGenerating(false);
+      }
+    } catch (error) {
+      console.error('Error processing voice input:', error);
+      toast({
+        title: "Processing error",
+        description: "Failed to process your speech. Please try again or type manually.",
+        variant: "destructive"
+      });
+    }
+    
+  }catch (error) {
+    console.error('Error fetching images:', error);
+    return []; // Return an empty array so the slide can still render without image
+  }  
+} 
   
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>, type: "csv" | "image") => {
     const file = event.target.files?.[0];
@@ -255,13 +499,11 @@ const Editor = () => {
       {slide.image && (
         <div className="mb-4 relative aspect-video">
           <img 
-            src={slide.image.url} 
-            alt={slide.image.alt}
+            src={slide.image} 
+            alt={slide.image}
             className="rounded-lg object-cover w-full h-full"
           />
-          <div className="absolute bottom-2 right-2 text-xs text-white bg-black bg-opacity-50 px-2 py-1 rounded">
-            Photo by {slide.image.credit}
-          </div>
+         
         </div>
       )}
       
