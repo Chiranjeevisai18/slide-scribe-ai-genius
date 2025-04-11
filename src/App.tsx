@@ -3,8 +3,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { SignedIn, SignedOut, RedirectToSignIn, useClerk } from "@clerk/clerk-react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { SignedIn, SignedOut, RedirectToSignIn, useClerk, useUser } from "@clerk/clerk-react";
 
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
@@ -14,8 +14,31 @@ import Editor from "./pages/Editor";
 import Templates from "./pages/Templates";
 import Settings from "./pages/Settings";
 import { useEffect, useState } from "react";
+import { useToast } from "./hooks/use-toast";
 
 const queryClient = new QueryClient();
+
+// Auth guard component to handle authentication state and redirects
+const AuthGuard = ({ children }: { children: React.ReactNode }) => {
+  const { user, isLoaded } = useUser();
+  const { toast } = useToast();
+  
+  useEffect(() => {
+    // Show welcome toast when user logs in
+    if (isLoaded && user) {
+      toast({
+        title: `Welcome, ${user.firstName || user.username || 'there'}!`,
+        description: "You're now signed in to SlideScribe AI",
+      });
+    }
+  }, [isLoaded, user, toast]);
+  
+  if (!isLoaded) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
+  
+  return <>{children}</>;
+};
 
 const App = () => {
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -52,13 +75,24 @@ const App = () => {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
+            <Route path="/login" element={
+              <>
+                <SignedIn>
+                  <Navigate to="/dashboard" replace />
+                </SignedIn>
+                <SignedOut>
+                  <Login />
+                </SignedOut>
+              </>
+            } />
             <Route
               path="/dashboard"
               element={
                 <>
                   <SignedIn>
-                    <Dashboard />
+                    <AuthGuard>
+                      <Dashboard />
+                    </AuthGuard>
                   </SignedIn>
                   <SignedOut>
                     <RedirectToSignIn />
@@ -71,7 +105,9 @@ const App = () => {
               element={
                 <>
                   <SignedIn>
-                    <Editor />
+                    <AuthGuard>
+                      <Editor />
+                    </AuthGuard>
                   </SignedIn>
                   <SignedOut>
                     <RedirectToSignIn />
@@ -84,7 +120,9 @@ const App = () => {
               element={
                 <>
                   <SignedIn>
-                    <Templates />
+                    <AuthGuard>
+                      <Templates />
+                    </AuthGuard>
                   </SignedIn>
                   <SignedOut>
                     <RedirectToSignIn />
@@ -97,7 +135,9 @@ const App = () => {
               element={
                 <>
                   <SignedIn>
-                    <Settings />
+                    <AuthGuard>
+                      <Settings />
+                    </AuthGuard>
                   </SignedIn>
                   <SignedOut>
                     <RedirectToSignIn />
