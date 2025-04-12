@@ -20,6 +20,7 @@ import {
   Plus,
   Loader2
 } from "lucide-react";
+import html2pdf from "html2pdf.js";
 import ReactMarkdown from 'react-markdown';
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,7 +35,14 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+import { saveAs } from "file-saver";
+import PptxGenJS from "pptxgenjs";
+import jsPDF from "jspdf";
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '');
 
+const model = genAI.getGenerativeModel({
+  model: 'gemini-1.5-flash', // FREE tier-supported fast model
+});
 type InputType = "text" | "voice" | "csv" | "image" | "url";
 type Slide = {
   id: number;
@@ -93,6 +101,8 @@ const Editor = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [presentationTitle, setPresentationTitle] = useState("");
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
 
   interface SlideContent {
     title: string;
@@ -110,44 +120,64 @@ const Editor = () => {
       });
       return;
     }
+  
     setIsGenerating(true);
     try {
-      // Generate content using Gemini with both title and content
+      // 1. Generate slide content using Gemini
       const generatedContent = await generateSlideContent(presentationTitle, textInput);
-      
-      // Transform the content into slides with images
+  
+      // 2. Transform content into slides and generate relevant images
       const newSlides = await Promise.all(generatedContent.map(async (content, index) => {
         try {
-          // Fetch relevant image for each slide
-          const images = await getTopicImages(content.imagePrompt || content.title);
-          
+          // Step A: Generate descriptive keywords using Gemini
+          const keywordPrompt = await model.generateContent(
+            `You are an expert at generating highly relevant image search keywords. 
+            Based on the slide titled "${content.title}" and its key bullet points: ${content.content.join(', ')}, 
+            generate the 5 to 7 most relevant and visually descriptive keywords that could return ideal images representing this slide. 
+            Focus mainly on the title but enhance it using the bullet points. 
+            Return only the keywords, comma-separated, with no extra text.`
+          );
+  
+          const keywordQuery = keywordPrompt.response.text().trim().replace(/\n/g, '');
+          console.log(`🔍 [${index}] Image keywords:`, keywordQuery);
+  
+          // Step B: Fetch image using Unsplash API
+          const accessKey = import.meta.env.VITE_UNSPLASH_ACCESS_KEY;
+          const imageResponse = await fetch(
+            `https://api.unsplash.com/search/photos?query=${encodeURIComponent(keywordQuery)}&client_id=${accessKey}&per_page=1&orientation=landscape&content_filter=high&order_by=relevant`
+          );
+          const imageData = await imageResponse.json();
+  
+          const imageUrl = imageData.results?.[0]?.urls?.regular;
+  
           return {
             id: index + 1,
             title: content.title,
             bullets: content.content,
-            type: content.slideType || (index === 0 ? "title" : "bullets"), // Use the slideType from the API
-            image: images[0]
+            type: content.slideType || (index === 0 ? "title" : "bullets"),
+            image: imageUrl || undefined
           };
         } catch (imageError) {
-          console.error('Image fetch error:', imageError);
-          // Return slide without image if image fetch fails
+          console.error(`❌ Image fetch failed for slide ${index}:`, imageError);
           return {
             id: index + 1,
             title: content.title,
             bullets: content.content,
-            type: content.slideType || (index === 0 ? "title" : "bullets") // Use the slideType from the API
+            type: content.slideType || (index === 0 ? "title" : "bullets")
           };
         }
       }));
+  
+      // 3. Set slides and show preview
       setSlides(newSlides as Slide[]);
       setShowPreview(true);
-      
+  
       toast({
         title: "Presentation generated!",
         description: "Your AI-powered slides have been created successfully.",
       });
     } catch (error) {
-      console.error('Generation error:', error);
+      console.error('❌ Generation error:', error);
       toast({
         title: "Generation failed",
         description: "Failed to generate presentation. Please try again.",
@@ -157,21 +187,84 @@ const Editor = () => {
       setIsGenerating(false);
     }
   };
+
+  const handleExport = async (format: "pptx" | "pdf") => {
+    const title = "The Evolution of the Human Era";
+    const points = [
+      "A journey through the key stages of human development.",
+      "Exploring technological advancements, societal structures, and environmental impact.",
+    ];
+    const imageUrl = "/image.png"; // Ensure this path is accessible in your `public` folder or use FileReader if uploaded
   
-  const handleExport = (format: "pptx" | "pdf") => {
-    toast({
-      title: `Exporting as ${format.toUpperCase()}`,
-      description: "Your presentation will be downloaded shortly.",
+    const imageBlob = await fetch(imageUrl).then(res => res.blob());
+    const imageBase64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(imageBlob);
     });
-    
-    // In a real app, this would trigger the actual export
-    setTimeout(() => {
-      toast({
-        title: "Export complete!",
-        description: `Your ${format.toUpperCase()} file has been downloaded.`,
+  
+    if (format === "pptx") {
+      const pptx = new PptxGenJS();
+      const slide = pptx.addSlide();
+  
+      slide.addText(title, { x: 0.5, y: 0.5, fontSize: 24, bold: true });
+      slide.addText(points.map(pt => `• ${pt}`).join("\n"), {
+        x: 0.5, y: 1.3, fontSize: 18, color: "363636",
       });
-    }, 1500);
+  
+      // Image with max dimensions
+      slide.addImage({
+        data: imageBase64,
+        x: 0.5,
+        y: 3,
+        w: 6,
+        h: 3.5,
+      });
+  
+      pptx.writeFile({ fileName: "presentation.pptx" });
+    } else if (format === "pdf") {
+      const pdf = new jsPDF();
+      pdf.setFontSize(16);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(title, 20, 30);
+  
+      pdf.setFontSize(12);
+      pdf.setFont("helvetica", "normal");
+      points.forEach((pt, i) => {
+        pdf.text(`• ${pt}`, 20, 45 + i * 10);
+      });
+
+      // Create image element and convert base64 to Image object
+      const img = document.createElement('img');
+      img.src = imageBase64;
+      img.onload = () => {
+        pdf.addImage(img, "PNG", 20, 70, 160, 90); // Scale image appropriately
+        pdf.save("presentation.pdf");
+      };
+    }
   };
+ 
+  <div className="relative group">
+    <button className="bg-purple-500 text-white px-4 py-2 rounded-md shadow hover:bg-purple-600 transition-colors">
+      Export
+    </button>
+  
+    <div className="absolute right-0 mt-2 w-64 bg-white border shadow-lg rounded-md z-10 hidden group-hover:block">
+      <button
+        onClick={() => handleExport("pptx")}
+        className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors"
+      >
+        Download as PowerPoint (.pptx)
+      </button>
+      <button
+        onClick={() => handleExport("pdf")}
+        className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors"
+      >
+        Download as PDF (.pdf)
+      </button>
+    </div>
+  </div>
+
   
   const handleSave = () => {
     toast({
@@ -312,11 +405,7 @@ const processVoiceInput = async () => {
   try {
     // First, ask Gemini to extract a title from the transcript
 
-    const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY || '');
-
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash', // FREE tier-supported fast model
-    });
+   
     
     try {
       const titleResponse = await model.generateContent(
@@ -377,7 +466,7 @@ const processVoiceInput = async () => {
             
         
             const data = await response.json();
-        
+            console.log(data);
             // 3. Handle case when no image found
             if (!data.results || data.results.length === 0) {
               throw new Error("No relevant images found");
@@ -866,26 +955,38 @@ const processVoiceInput = async () => {
                   >
                     Back to Editor
                   </Button>
-                  <div className="relative group">
-                    <Button className="bg-purple hover:bg-purple-dark">
-                      <Download size={16} className="mr-2" />
-                      Export
-                    </Button>
-                    <div className="absolute right-0 mt-2 w-40 bg-white shadow-lg rounded-md border overflow-hidden z-10 hidden group-hover:block">
-                      <button
-                        onClick={() => handleExport("pptx")}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors"
-                      >
-                        PowerPoint (.pptx)
-                      </button>
-                      <button
-                        onClick={() => handleExport("pdf")}
-                        className="w-full px-4 py-2 text-left hover:bg-gray-100 transition-colors"
-                      >
-                        PDF (.pdf)
-                      </button>
-                    </div>
-                  </div>
+                  <div className="relative">
+  <button
+    className="bg-purple-500 text-white px-4 py-2 rounded-md shadow hover:bg-purple-600 transition-colors"
+    onClick={() => setIsExportMenuOpen(prev => !prev)}
+  >
+    Export
+  </button>
+
+  {isExportMenuOpen && (
+    <div className="absolute right-0 mt-2 w-48 bg-white shadow-lg rounded-md border overflow-hidden z-10">
+      <button
+        onClick={() => {
+          handleExport("pptx");
+          setIsExportMenuOpen(false); // close after click
+        }}
+        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors"
+      >
+        Download as PowerPoint (.pptx)
+      </button>
+      <button
+        onClick={() => {
+          handleExport("pdf");
+          setIsExportMenuOpen(false); // close after click
+        }}
+        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors"
+      >
+        Download as PDF (.pdf)
+      </button>
+    </div>
+  )}
+</div>
+
                   <Button 
                     variant="outline" 
                     onClick={handleSave}
